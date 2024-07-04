@@ -1,6 +1,6 @@
 # webgl_volume_demo
 
-Demo application of volume rendering using three.js 
+Demo application of volume rendering using three.js - check it out at https://peterc-dls.github.io/webgl_volume_demo/
 
 Derived from [`three.js` volume ray casting example](https://threejs.org/examples/?q=texture#webgl_texture3d). The following changes were added:
 
