@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>three.js webgl - volume rendering</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<link type="text/css" rel="stylesheet" href="index.css">
+</head>
+
+<body>
+	<div id="info">
+		<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> - Float volume render <span id="file_name"></span> (mip / isosurface)
+	</div>
+
+	<script type="importmap">
+		{
+			"imports": {
+				"three": "./libs/three.module.min.js",
+				"fflate": "./libs/fflate.module.js",
+				"addons/": "./addons/"
+			}
+		}
+	</script>
+
+	<script type="module">
+		import * as THREE from 'three';
+
+		import { GUI } from './libs/lil-gui.esm.min.js';
+		import { OrbitControls } from 'addons/OrbitControls.js';
+		import { NRRDLoader } from 'addons/NRRDLoader.js';
+		import { VolumeRenderShader1 } from 'addons/VolumeShader.js';
+
+		let renderer,
+			scene,
+			camera,
+			controls,
+			volconfig,
+			cmtextures;
+		var mesh = null;
+
+		const file_input = document.createElement('input');
+		file_input.type = 'file';
+		var input_file = './public/stent.nrrd';
+		document.getElementById('file_name').textContent = `of "${input_file}"`;
+
+		const file_input_controller = init();
+		file_input.onchange = e => {
+			input_file = e.target.files[0].name;
+			document.getElementById('file_name').textContent = `of "${input_file}"`;
+			new NRRDLoader().load( input_file, onLoad );
+		};
+
+		function create_texture( volume ) {
+			// Texture to hold the volume. We have scalars, so we put our data in the red channel.
+			// THREEJS will select R32F (33326) based on the THREE.RedFormat and THREE.FloatType.
+			// Also see https://www.khronos.org/registry/webgl/specs/latest/2.0/#TEXTURE_TYPES_FORMATS_FROM_DOM_ELEMENTS_TABLE
+			// TODO: look the dtype up in the volume metadata
+
+			// XXX cannot modify texture in place
+			const texture = new THREE.Data3DTexture( volume.data, volume.xLength, volume.yLength, volume.zLength );
+			texture.format = THREE.RedFormat;
+			texture.type = THREE.FloatType;
+			texture.minFilter = texture.magFilter = THREE.LinearFilter;
+			texture.unpackAlignment = 1;
+			texture.needsUpdate = true;
+			return texture;
+		}
+
+		function create_mesh( texture ) {
+			// Material
+			const shader = VolumeRenderShader1;
+			const uniforms = THREE.UniformsUtils.clone( shader.uniforms );
+
+			const image = texture.image;
+			console.log("create mesh", image);
+			uniforms[ 'u_data' ].value = texture;
+			uniforms[ 'u_size' ].value.set( image.width, image.height, image.depth );
+
+			updateUniforms(uniforms);
+
+			const material = new THREE.ShaderMaterial( {
+				uniforms: uniforms,
+				vertexShader: shader.vertexShader,
+				fragmentShader: shader.fragmentShader,
+				side: THREE.BackSide // The volume shader uses the backface as its "reference point"
+			} );
+
+			// THREE.Mesh
+			const geometry = new THREE.BoxGeometry( image.width, image.height, image.depth );
+			geometry.translate( image.width / 2 - 0.5, image.height / 2 - 0.5, image.depth / 2 - 0.5 );
+
+			return new THREE.Mesh( geometry, material );
+		}
+
+		function update_mesh(texture) {
+			const uniforms = mesh.material.uniforms;
+			const old_texture = uniforms[ 'u_data' ].value;
+			const old_image = old_texture.image;
+			const image = texture.image;
+			console.log("Update mesh", image);
+			uniforms[ 'u_data' ].value = texture;
+			uniforms[ 'u_size' ].value.set( image.width, image.height, image.depth );
+			mesh.geometry.translate( -old_image.width / 2 + 0.5, -old_image.height / 2 + 0.5, -old_image.depth / 2 + 0.5 );
+			mesh.geometry.scale(image.width/old_image.width, image.height/old_image.height, image.depth/old_image.depth);
+			mesh.geometry.translate( image.width / 2 - 0.5, image.height / 2 - 0.5, image.depth / 2 - 0.5 );
+		}
+
+		function onLoad(volume) {
+			const texture = create_texture(volume);
+			if (mesh == null) {
+				mesh = create_mesh(texture);
+				scene.add( mesh );
+			} else {
+				update_mesh(texture);
+			}
+
+			render();
+		}
+
+
+		function init() {
+
+			scene = new THREE.Scene();
+
+			// Create renderer
+			renderer = new THREE.WebGLRenderer();
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.setSize( window.innerWidth, window.innerHeight );
+			document.body.appendChild( renderer.domElement );
+
+			// Create camera (The volume renderer does not work very well with perspective yet)
+			const h = 512; // frustum height
+			const aspect = window.innerWidth / window.innerHeight;
+			camera = new THREE.OrthographicCamera( - h * aspect / 2, h * aspect / 2, h / 2, - h / 2, 1, 1000 );
+			camera.position.set( - 64, - 64, 128 );
+			camera.up.set( 0, 0, 1 ); // In our data, z is up
+
+			// Create controls
+			controls = new OrbitControls( camera, renderer.domElement );
+			controls.addEventListener( 'change', render );
+			controls.target.set( 64, 64, 128 );
+			controls.minZoom = 0.5;
+			controls.maxZoom = 4;
+			controls.enablePan = true;
+			controls.update();
+
+			// scene.add( new THREE.AxesHelper( 128 ) );
+
+			// Lighting is baked into the shader a.t.m.
+			// let dirLight = new DirectionalLight( 0xffffff );
+
+			// The gui for interaction
+			volconfig = { input: () => file_input.click(), clim1: 0, clim2: 1, renderstyle: 'iso', isothreshold: 0.15, colormap: 'gray' };
+			const gui = new GUI({width: 450});
+			const fic = gui.add( volconfig, 'input').name('Load...');
+			gui.add( volconfig, 'clim1', 0, 1, 0.01 ).onChange( changeUniforms );
+			gui.add( volconfig, 'clim2', 0, 1, 0.01 ).onChange( changeUniforms );
+			gui.add( volconfig, 'colormap', { gray: 'gray', viridis: 'viridis', inferno: 'inferno' } ).onChange( changeUniforms );
+			gui.add( volconfig, 'renderstyle', { mip: 'mip', iso: 'iso' } ).onChange( changeUniforms );
+			gui.add( volconfig, 'isothreshold', 0, 1, 0.01 ).onChange( changeUniforms );
+
+			// Colormap textures
+			cmtextures = {
+				inferno: new THREE.TextureLoader().load( './public/cm_inferno.png', render ),
+				viridis: new THREE.TextureLoader().load( './public/cm_viridis.png', render ),
+				gray: new THREE.TextureLoader().load( './public/cm_gray.png', render )
+			};
+
+			// Load the data ...
+			new NRRDLoader().load( input_file, onLoad );
+
+			window.addEventListener( 'resize', onWindowResize );
+			return fic;
+		}
+
+		function updateUniforms(uniforms) {
+			uniforms[ 'u_clim' ].value.set( volconfig.clim1, volconfig.clim2 );
+			uniforms[ 'u_renderstyle' ].value = volconfig.renderstyle == 'mip' ? 0 : 1; // 0: MIP, 1: ISO
+			uniforms[ 'u_renderthreshold' ].value = volconfig.isothreshold; // For ISO renderstyle
+			uniforms[ 'u_cmdata' ].value = cmtextures[ volconfig.colormap ];
+		}
+
+		function changeUniforms() {
+			updateUniforms(mesh.material.uniforms);
+			render();
+		}
+
+		function onWindowResize() {
+
+			renderer.setSize( window.innerWidth, window.innerHeight );
+
+			const aspect = window.innerWidth / window.innerHeight;
+
+			const frustumHeight = camera.top - camera.bottom;
+
+			camera.left = - frustumHeight * aspect / 2;
+			camera.right = frustumHeight * aspect / 2;
+
+			camera.updateProjectionMatrix();
+
+			render();
+
+		}
+
+		function render() {
+
+			renderer.render( scene, camera );
+
+		}
+
+	</script>
+
+</body>
+</html>
