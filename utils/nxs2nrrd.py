@@ -98,7 +98,9 @@ def save_vol_nrrd(nrrd_file, vol_data, out_dtype=np.float32):
     header = dict(space="right-anterior-superior", labels=list(axes.keys()), spacings=spacings)
     header["space origin"] = origin
     volume = vol_data["volume"]
-    print(volume.shape, volume.min(), volume.max())
+    v_min, v_max = volume.min(), volume.max()
+    print(volume.shape, v_min, v_max, origin)
+    volume = (volume - v_min) * (1 / (v_max - v_min))
     nrrd.write(nrrd_file, volume.astype(out_dtype), header)
 
 def save_vol_npz(npz_file, vol_data, out_dtype=np.float32):

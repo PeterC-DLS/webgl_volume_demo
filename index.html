@@ -40,14 +40,19 @@
 
 		const file_input = document.createElement('input');
 		file_input.type = 'file';
-		var input_file = './public/stent.nrrd';
-		document.getElementById('file_name').textContent = `of "${input_file}"`;
+		var input_files = ['stent.nrrd', 'diffuse.nrrd'];
 
-		const file_input_controller = init();
+		init();
 		file_input.onchange = e => {
-			input_file = e.target.files[0].name;
-			document.getElementById('file_name').textContent = `of "${input_file}"`;
-			new NRRDLoader().load( input_file, onLoad );
+			const input_file = e.target.files[0];
+			document.getElementById('file_name').textContent = `of "${input_file.name}"`;
+			const buff = input_file.arrayBuffer();
+			buff.then((b) => {
+				onLoad(new NRRDLoader().parse(b));
+			}).catch((e) => {
+				errlog("Error parsing input: " + e.message);
+				e.stack && errlog(e.stack);
+			});
 		};
 
 		function create_texture( volume ) {
@@ -150,9 +155,11 @@
 			// let dirLight = new DirectionalLight( 0xffffff );
 
 			// The gui for interaction
-			volconfig = { input: () => file_input.click(), clim1: 0, clim2: 1, renderstyle: 'iso', isothreshold: 0.15, colormap: 'gray' };
+			volconfig = { remote_input: 0, local_input: () => file_input.click(), clim1: 0, clim2: 1, renderstyle: 'iso', isothreshold: 0.15, colormap: 'gray' };
 			const gui = new GUI({width: 450});
-			const fic = gui.add( volconfig, 'input').name('Load...');
+			const folder = gui.addFolder('Data')
+			folder.add( volconfig, 'remote_input', {stent: 0, diffuse: 1}).onChange(loadRemoteInput);
+			folder.add( volconfig, 'local_input').name('Load...');
 			gui.add( volconfig, 'clim1', 0, 1, 0.01 ).onChange( changeUniforms );
 			gui.add( volconfig, 'clim2', 0, 1, 0.01 ).onChange( changeUniforms );
 			gui.add( volconfig, 'colormap', { gray: 'gray', viridis: 'viridis', inferno: 'inferno' } ).onChange( changeUniforms );
@@ -166,11 +173,16 @@
 				gray: new THREE.TextureLoader().load( './public/cm_gray.png', render )
 			};
 
-			// Load the data ...
-			new NRRDLoader().load( input_file, onLoad );
-
+			// Load the data from remote source...
+			loadRemoteInput()
 			window.addEventListener( 'resize', onWindowResize );
-			return fic;
+		}
+
+		function loadRemoteInput() {
+			const name = input_files[volconfig.remote_input];
+			document.getElementById('file_name').textContent = `of "${name}"`;
+
+			new NRRDLoader().load(`public/${name}`, onLoad);
 		}
 
 		function updateUniforms(uniforms) {
@@ -186,7 +198,6 @@
 		}
 
 		function onWindowResize() {
-
 			renderer.setSize( window.innerWidth, window.innerHeight );
 
 			const aspect = window.innerWidth / window.innerHeight;
@@ -199,13 +210,10 @@
 			camera.updateProjectionMatrix();
 
 			render();
-
 		}
 
 		function render() {
-
 			renderer.render( scene, camera );
-
 		}
 
 	</script>
