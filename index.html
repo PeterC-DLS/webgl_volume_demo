@@ -158,8 +158,8 @@
 			volconfig = { remote_input: 0, local_input: () => file_input.click(), clim1: 0, clim2: 1, renderstyle: 'iso', isothreshold: 0.15, colormap: 'gray' };
 			const gui = new GUI({width: 450});
 			const folder = gui.addFolder('Data')
-			folder.add( volconfig, 'remote_input', {stent: 0, diffuse: 1}).onChange(loadRemoteInput);
-			folder.add( volconfig, 'local_input').name('Load...');
+			folder.add( volconfig, 'remote_input', {stent: 0, diffuse: 1}).name('volume').onChange(loadRemoteInput);
+			folder.add( volconfig, 'local_input').name('Load local volume...');
 			gui.add( volconfig, 'clim1', 0, 1, 0.01 ).onChange( changeUniforms );
 			gui.add( volconfig, 'clim2', 0, 1, 0.01 ).onChange( changeUniforms );
 			gui.add( volconfig, 'colormap', { gray: 'gray', viridis: 'viridis', inferno: 'inferno' } ).onChange( changeUniforms );
